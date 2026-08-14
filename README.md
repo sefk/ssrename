@@ -60,8 +60,8 @@ ssrename --dry-run backfill --limit 3
 either way:
 
 ```sh
-defaults write com.apple.screencapture location-screenshot ~/Desktop/Screenshots  # macOS 27+
-defaults write com.apple.screencapture location ~/Desktop/Screenshots             # older
+defaults write com.apple.screencapture location-screenshot ~/Pictures/Screenshots  # macOS 27+
+defaults write com.apple.screencapture location ~/Pictures/Screenshots             # older
 ```
 
 Setting only the legacy `location` key on macOS 27 fails **silently** —
@@ -81,11 +81,14 @@ Capitalisation of the path doesn't matter here — ssrename resolves `watch_dir`
 the directory's real on-disk name — but the preference and `watch_dir` must point
 at the same directory. `ssrename doctor` says so if they don't.
 
-### Full Disk Access
+### Full Disk Access (only if you move the watch directory)
 
-If the watch directory is under `~/Desktop`, `~/Documents`, or `~/Downloads`,
-macOS gates it behind TCC, and a LaunchAgent cannot show a permission prompt —
-so it fails silently. Symptom: nothing is ever renamed and
+The default `~/Pictures/Screenshots` needs no permissions at all, and that is the
+whole reason for the default. Skip this section unless you point `watch_dir` at
+`~/Desktop`, `~/Documents`, or `~/Downloads`.
+
+Those are gated by TCC, and a LaunchAgent cannot show a permission prompt — so it
+fails silently. Symptom: nothing is ever renamed and
 `~/Library/Logs/ssrename.log` shows no activity.
 
 `ssrename doctor` reports whether reading the directory actually works and, when
@@ -121,7 +124,7 @@ things you're most likely to change:
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `general.watch_dir` | `~/Desktop/screenshots` | directory watched |
+| `general.watch_dir` | `~/Pictures/Screenshots` | directory watched |
 | `general.debounce_seconds` | `8.0` | delay after a file appears |
 | `general.max_words` | `5` | words kept from the description |
 | `general.max_image_px` | `1600` | longest edge sent to the model (`sips`) |

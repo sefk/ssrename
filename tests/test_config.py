@@ -6,7 +6,7 @@ from ssrename.config import DEFAULT_CONFIG_TEXT, load_config, write_default_conf
 def test_defaults_when_file_is_absent(tmp_path):
     cfg = load_config(tmp_path / "nope.toml")
     assert cfg.backend_kind == "openai"
-    assert cfg.watch_dir == Path("~/Desktop/screenshots").expanduser()
+    assert cfg.watch_dir == Path("~/Pictures/Screenshots").expanduser()
 
 
 def test_shipped_default_config_parses(tmp_path):
@@ -14,6 +14,11 @@ def test_shipped_default_config_parses(tmp_path):
     assert path.read_text() == DEFAULT_CONFIG_TEXT
     cfg = load_config(path)
     assert cfg.backend_kind == "openai"
+    # The default must stay out of the privacy-protected directories, or the
+    # LaunchAgent silently fails for anyone who does not grant Full Disk Access.
+    from ssrename import system
+
+    assert not system.is_protected(cfg.watch_dir)
     assert cfg.max_words == 5
     assert cfg.max_image_px == 1600
     assert cfg.openai.extra_body == {"reasoning_effort": "none"}

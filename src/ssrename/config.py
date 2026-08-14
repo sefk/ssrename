@@ -28,7 +28,12 @@ DEFAULT_CONFIG_TEXT = f'''\
 [general]
 # Directory to watch. Set macOS to save screenshots here with:
 #   ssrename set-screenshot-dir
-watch_dir = "~/Desktop/screenshots"
+#
+# ~/Pictures is deliberate: ~/Desktop, ~/Documents and ~/Downloads are gated by
+# macOS privacy controls, and a LaunchAgent cannot show a permission prompt, so
+# watching one of those means granting Full Disk Access by hand and re-granting
+# it whenever the interpreter's path changes. ~/Pictures needs none of that.
+watch_dir = "~/Pictures/Screenshots"
 
 # Only files whose names match this regex are considered. The default matches
 # the names macOS gives new screenshots, so already-renamed files are left alone.
@@ -100,7 +105,7 @@ class FmBackendConfig:
 
 @dataclass
 class Config:
-    watch_dir: Path = Path("~/Desktop/screenshots").expanduser()
+    watch_dir: Path = Path("~/Pictures/Screenshots").expanduser()
     filename_pattern: str = "^(Screenshot|Screen Shot|Screen Recording) "
     debounce_seconds: float = 8.0
     poll_seconds: float = 60.0
