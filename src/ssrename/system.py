@@ -5,6 +5,7 @@ from __future__ import annotations
 import plistlib
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 LABEL = "com.sefk.ssrename"
@@ -35,7 +36,12 @@ def plist_contents(config_path: Path | None = None) -> dict:
         "ProcessType": "Background",
         "StandardOutPath": str(LOG_PATH),
         "StandardErrorPath": str(LOG_PATH),
-        "EnvironmentVariables": {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"},
+        "EnvironmentVariables": {
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin",
+            # Redirected stdout is block-buffered, which would hold back anything
+            # printed until several KB accumulate. The log should be live.
+            "PYTHONUNBUFFERED": "1",
+        },
     }
 
 
@@ -67,6 +73,28 @@ def install_agent(config_path: Path | None = None) -> Path:
     return PLIST_PATH
 
 
+def wait_for_agent(timeout: float = 10.0) -> tuple[bool, str]:
+    """Confirm the agent came up and logged something. (ok, explanation)."""
+    deadline = time.monotonic() + timeout
+    size_before = LOG_PATH.stat().st_size if LOG_PATH.exists() else 0
+    while time.monotonic() < deadline:
+        running = agent_is_running()
+        grew = LOG_PATH.exists() and LOG_PATH.stat().st_size > size_before
+        if running and grew:
+            return True, agent_status()
+        time.sleep(0.5)
+    if not LOG_PATH.exists():
+        return False, (
+            f"no log file at {LOG_PATH} — launchd could not run the command at all. "
+            f"Check: launchctl print gui/$(id -u)/{LABEL}"
+        )
+    if not agent_is_running():
+        return False, f"agent is not running: {agent_status()}"
+    return False, (
+        f"agent is running but wrote nothing to {LOG_PATH} within {timeout:.0f}s"
+    )
+
+
 def uninstall_agent() -> bool:
     uid = subprocess.run(["id", "-u"], capture_output=True, text=True).stdout.strip()
     subprocess.run(["launchctl", "bootout", f"gui/{uid}/{LABEL}"], capture_output=True)
@@ -76,17 +104,39 @@ def uninstall_agent() -> bool:
     return False
 
 
-def agent_status() -> str:
+def agent_fields() -> dict[str, str] | None:
+    """`launchctl print` boiled down to the few fields worth reading."""
     uid = subprocess.run(["id", "-u"], capture_output=True, text=True).stdout.strip()
     result = subprocess.run(
         ["launchctl", "print", f"gui/{uid}/{LABEL}"], capture_output=True, text=True
     )
     if result.returncode != 0:
-        return "not loaded"
+        return None
+    fields: dict[str, str] = {}
     for line in result.stdout.splitlines():
-        if "state = " in line:
-            return line.strip()
-    return "loaded"
+        for key in ("state", "pid", "last exit code"):
+            prefix = f"{key} = "
+            if line.strip().startswith(prefix) and key not in fields:
+                fields[key] = line.strip()[len(prefix) :]
+    return fields
+
+
+def agent_status() -> str:
+    fields = agent_fields()
+    if fields is None:
+        return "not loaded"
+    state = fields.get("state", "loaded")
+    if fields.get("pid"):
+        return f"{state} (pid {fields['pid']})"
+    exit_code = fields.get("last exit code")
+    if exit_code and exit_code not in {"0", "(never exited)"}:
+        return f"{state}, NOT running - last exit code {exit_code}"
+    return state
+
+
+def agent_is_running() -> bool:
+    fields = agent_fields()
+    return bool(fields and fields.get("pid"))
 
 
 #: Directories macOS puts behind TCC, relative to the home directory.

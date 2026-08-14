@@ -143,8 +143,14 @@ def cmd_install(args) -> int:
         print(f"refusing to install: the agent command fails\n{probe}", file=sys.stderr)
         return 1
     path = system.install_agent(Path(cfg_path) if cfg_path else None)
-    print(f"installed and started {path}")
+    print(f"installed {path}")
+    started, detail = system.wait_for_agent()
+    print(f"{'started' if started else 'DID NOT START'}: {detail}")
     print(f"logs: {system.LOG_PATH}")
+    if not started:
+        for line in system.agent_log_tail():
+            print(f"  {line}")
+        return 1
     cfg = load_config(args.config)
     if system.is_protected(cfg.watch_dir):
         print()
