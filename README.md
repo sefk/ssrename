@@ -3,12 +3,13 @@
 Renames macOS screenshots from what's in them.
 
 ```
-Screenshot 2026-07-31 at 6.59.43 AM.png  ->  2026-07-31-datatalk-campaign-finance-query.png
+Screenshot 2026-07-31 at 6.59.43 AM.png  ->  2026-07-31-06-59-datatalk-campaign-finance-query.png
 ```
 
 A background agent watches your screenshot folder, sends each new capture to a
-vision model, and renames the file `yyyy-mm-dd-short-description.ext`. No dock
-icon, no menu bar item — one config file and a LaunchAgent.
+vision model, and renames the file `yyyy-mm-dd-HH-mm-short-description.ext`, on
+the 24-hour clock. No dock icon, no menu bar item — one config file and a
+LaunchAgent.
 
 Two backends:
 
@@ -158,7 +159,7 @@ ssrename --config ~/.config/ssrename/studio.toml install
 | `ssrename backfill [--limit N]` | rename existing screenshots in the watch dir |
 | `ssrename doctor` | check config, backend reachability, macOS settings, agent |
 | `ssrename init [--force]` | write the default config |
-| `ssrename set-screenshot-dir [PATH]` | `defaults write com.apple.screencapture location` |
+| `ssrename set-screenshot-dir [PATH]` | point macOS at a screenshot folder (see above) |
 | `ssrename install` / `uninstall` | manage the LaunchAgent |
 
 `--dry-run` works with everything; logs go to `~/Library/Logs/ssrename.log`.

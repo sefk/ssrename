@@ -1,9 +1,9 @@
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import pytest
 
-from ssrename.naming import date_for, slugify, target_path
+from ssrename.naming import date_for, datetime_for, slugify, target_path
 
 
 @pytest.mark.parametrize(
@@ -47,15 +47,15 @@ def test_date_falls_back_to_file_time(tmp_path):
 def test_target_path(tmp_path):
     src = tmp_path / "Screenshot 2026-07-31 at 6.59.43 AM.png"
     src.write_bytes(b"x")
-    assert target_path(src, "GitHub pull request").name == "2026-07-31-github-pull-request.png"
+    assert target_path(src, "GitHub pull request").name == "2026-07-31-06-59-github-pull-request.png"
 
 
 def test_target_path_avoids_collisions(tmp_path):
     src = tmp_path / "Screenshot 2026-07-31 at 6.59.43 AM.png"
     src.write_bytes(b"x")
-    (tmp_path / "2026-07-31-github-pr.png").write_bytes(b"y")
-    (tmp_path / "2026-07-31-github-pr-2.png").write_bytes(b"y")
-    assert target_path(src, "github pr").name == "2026-07-31-github-pr-3.png"
+    (tmp_path / "2026-07-31-06-59-github-pr.png").write_bytes(b"y")
+    (tmp_path / "2026-07-31-06-59-github-pr-2.png").write_bytes(b"y")
+    assert target_path(src, "github pr").name == "2026-07-31-06-59-github-pr-3.png"
 
 
 def test_target_path_normalises_extension_case(tmp_path):

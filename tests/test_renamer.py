@@ -40,7 +40,7 @@ def test_renames_a_screenshot(renamer, tmp_path):
     src = _screenshot(tmp_path)
     result = renamer.process(src)
     assert result.renamed
-    assert result.dest.name == "2026-07-31-github-pull-request.png"
+    assert result.dest.name == "2026-07-31-06-59-github-pull-request.png"
     assert result.dest.exists() and not src.exists()
 
 
@@ -70,7 +70,7 @@ def test_dry_run_leaves_the_file_alone(tmp_path):
     r = Renamer(cfg, FakeBackend(), dry_run=True)
     src = _screenshot(tmp_path)
     result = r.process(src)
-    assert result.dest.name == "2026-07-31-github-pull-request.png"
+    assert result.dest.name == "2026-07-31-06-59-github-pull-request.png"
     assert src.exists()
     assert not result.dest.exists()
 
@@ -89,10 +89,10 @@ def test_missing_file_is_skipped(renamer, tmp_path):
 
 
 def test_collision_gets_a_suffix(renamer, tmp_path):
-    (tmp_path / "2026-07-31-github-pull-request.png").write_bytes(b"old")
+    (tmp_path / "2026-07-31-06-59-github-pull-request.png").write_bytes(b"old")
     src = _screenshot(tmp_path)
     result = renamer.process(src)
-    assert result.dest.name == "2026-07-31-github-pull-request-2.png"
+    assert result.dest.name == "2026-07-31-06-59-github-pull-request-2.png"
 
 
 @pytest.mark.parametrize(
