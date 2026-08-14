@@ -70,10 +70,13 @@ def test_check_read_access_unreadable_file(tmp_path):
         f.chmod(stat.S_IRUSR | stat.S_IWUSR)
 
 
+_STARTED = "2026-01-01 INFO watching /x/y (backend=fm)"
+
+
 def test_agent_log_tail_selects_errors(tmp_path, monkeypatch):
     log = tmp_path / "ssrename.log"
     log.write_text(
-        "2026-01-01 INFO watching\n"
+        f"{_STARTED}\n"
         "2026-01-01 ERROR shot.png: cannot reach server\n"
         "2026-01-01 INFO renamed\n"
     )
@@ -84,6 +87,39 @@ def test_agent_log_tail_selects_errors(tmp_path, monkeypatch):
 def test_agent_log_tail_without_a_log(tmp_path, monkeypatch):
     monkeypatch.setattr(system, "LOG_PATH", tmp_path / "missing.log")
     assert system.agent_log_tail() == []
+
+
+def test_agent_log_tail_ignores_errors_from_earlier_runs(tmp_path, monkeypatch):
+    """A startup crash that was fixed must not be reported forever."""
+    log = tmp_path / "ssrename.log"
+    log.write_text(
+        "ssrename: error: unrecognized arguments: --config /x.toml\n"
+        "ssrename: error: unrecognized arguments: --config /x.toml\n"
+        f"{_STARTED}\n"
+        "2026-01-01 INFO renamed\n"
+    )
+    monkeypatch.setattr(system, "LOG_PATH", log)
+    assert system.agent_log_tail() == []
+
+
+def test_agent_log_tail_uses_the_last_start_not_the_first(tmp_path, monkeypatch):
+    log = tmp_path / "ssrename.log"
+    log.write_text(
+        f"{_STARTED}\n"
+        "2026-01-01 ERROR old failure\n"
+        f"{_STARTED}\n"
+        "2026-01-02 ERROR current failure\n"
+    )
+    monkeypatch.setattr(system, "LOG_PATH", log)
+    assert system.agent_log_tail() == ["2026-01-02 ERROR current failure"]
+
+
+def test_agent_log_tail_reports_everything_when_it_never_started(tmp_path, monkeypatch):
+    """No marker means the agent never booted — that is the case worth showing."""
+    log = tmp_path / "ssrename.log"
+    log.write_text("Traceback (most recent call last):\nImportError: no watchdog\n")
+    monkeypatch.setattr(system, "LOG_PATH", log)
+    assert system.agent_log_tail() == ["Traceback (most recent call last):"]
 
 
 def test_set_screenshot_location_writes_every_key(tmp_path, monkeypatch):

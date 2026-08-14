@@ -184,14 +184,32 @@ def check_read_access(directory: Path) -> tuple[bool, str]:
     return True, f"listed {len(entries)} entries, read {files[0].name}"
 
 
+#: What the watcher logs on startup. Everything before the last one belongs to
+#: an earlier run of the agent.
+_STARTUP_MARKER = "watching "
+
+
 def agent_log_tail(lines: int = 5) -> list[str]:
-    """Recent complaints from the agent, if it has been running."""
+    """Recent complaints from the agent's *current* run.
+
+    The log is append-only across restarts, so scanning all of it resurrects
+    errors that were fixed long ago — a fixed startup crash would be reported
+    forever. Only the tail since the last successful startup counts.
+
+    If the agent has never started successfully there is no marker, and then the
+    whole log is fair game: that is exactly the case worth reporting, since the
+    failure will be the argument or import error that stopped it booting.
+    """
     if not LOG_PATH.exists():
         return []
     try:
         content = LOG_PATH.read_text(errors="replace").splitlines()
     except OSError:
         return []
+    for i in range(len(content) - 1, -1, -1):
+        if _STARTUP_MARKER in content[i]:
+            content = content[i + 1 :]
+            break
     bad = [ln for ln in content if "ERROR" in ln or "error:" in ln or "Traceback" in ln]
     return bad[-lines:]
 
