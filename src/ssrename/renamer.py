@@ -10,9 +10,15 @@ from pathlib import Path
 
 from .backends import Backend, BackendError
 from .config import Config
+from .fsutil import rename_no_clobber
 from .naming import target_path
 
 log = logging.getLogger("ssrename")
+
+#: How many times to pick a fresh name when another process claims ours first.
+#: Each loss means a genuine race, so more than a couple means something is very
+#: wrong rather than merely unlucky.
+CLAIM_ATTEMPTS = 5
 
 
 @dataclass
@@ -77,18 +83,27 @@ class Renamer:
         except BackendError as e:
             return Result(path, error=str(e))
 
-        dest = target_path(path, description, self.cfg.max_words)
-        if dest == path:
-            return Result(path, skipped="already named that")
-        log.info("%s -> %s  (%s)", path.name, dest.name, description)
-        if self.dry_run:
-            return Result(path, dest=dest, skipped="dry run")
-        try:
+        # Another process can take the name between choosing it and claiming it,
+        # so choosing is part of the retry, not done once up front.
+        for _ in range(CLAIM_ATTEMPTS):
+            dest = target_path(path, description, self.cfg.max_words)
+            if dest == path:
+                return Result(path, skipped="already named that")
+            if self.dry_run:
+                log.info("%s -> %s  (%s)", path.name, dest.name, description)
+                return Result(path, dest=dest, skipped="dry run")
             # Re-check just before moving: the user may have dragged the file out
             # of the thumbnail chip or deleted it while the model was thinking.
             if not path.exists():
                 return Result(path, skipped="gone")
-            path.rename(dest)
-        except OSError as e:
-            return Result(path, error=f"rename failed: {e}")
-        return Result(path, dest=dest)
+            try:
+                rename_no_clobber(path, dest)
+            except FileExistsError:
+                continue  # lost the race; pick the next free name
+            except OSError as e:
+                return Result(path, error=f"rename failed: {e}")
+            log.info("%s -> %s  (%s)", path.name, dest.name, description)
+            return Result(path, dest=dest)
+        return Result(
+            path, error=f"could not claim a free name after {CLAIM_ATTEMPTS} tries"
+        )

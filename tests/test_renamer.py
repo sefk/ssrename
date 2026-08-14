@@ -105,3 +105,41 @@ def test_collision_gets_a_suffix(renamer, tmp_path):
 )
 def test_clean(raw, expected):
     assert clean(raw) == expected
+
+
+def test_losing_a_race_does_not_destroy_the_other_file(renamer, tmp_path, monkeypatch):
+    """Another process claims our chosen name in the gap before we take it."""
+    import ssrename.renamer as renamer_mod
+
+    real = renamer_mod.rename_no_clobber
+    taken = tmp_path / "2026-07-31-06-59-github-pull-request.png"
+
+    def steal_then_rename(source, dest):
+        # Simulate the other process winning, but only for the first choice.
+        if dest == taken and not taken.exists():
+            taken.write_bytes(b"the other process's screenshot")
+        return real(source, dest)
+
+    monkeypatch.setattr(renamer_mod, "rename_no_clobber", steal_then_rename)
+
+    src = _screenshot(tmp_path)
+    result = renamer.process(src)
+
+    assert result.renamed
+    # We stepped aside instead of overwriting.
+    assert result.dest.name == "2026-07-31-06-59-github-pull-request-2.png"
+    assert taken.read_bytes() == b"the other process's screenshot"
+    assert result.dest.read_bytes() == b"not really a png"
+
+
+def test_gives_up_after_repeated_losses(renamer, tmp_path, monkeypatch):
+    import ssrename.renamer as renamer_mod
+
+    def always_taken(source, dest):
+        raise FileExistsError(f"{dest} taken")
+
+    monkeypatch.setattr(renamer_mod, "rename_no_clobber", always_taken)
+
+    result = renamer.process(_screenshot(tmp_path))
+    assert not result.renamed
+    assert "could not claim a free name" in result.error
