@@ -146,20 +146,39 @@ def agent_log_tail(lines: int = 5) -> list[str]:
     return bad[-lines:]
 
 
+#: Preference keys holding the screenshot destination, newest first.
+#:
+#: macOS 27 split the single `location` key into per-capture-type keys —
+#: `/usr/sbin/screencapture` reads `location-screenshot` for stills and
+#: `location-screenrecording` for video, mirroring the existing
+#: `target-screenshot`/`target-screenrecording` split. Writing only the legacy
+#: `location` key leaves screenshots going to ~/Desktop on macOS 27, with no
+#: error: the binary just falls back to its built-in default.
+#:
+#: We write all of them, and read them in this order. Older macOS ignores the
+#: keys it does not know, so a single code path covers both.
+SCREENSHOT_LOCATION_KEYS = ("location-screenshot", "location")
+
+
 def screenshot_location() -> str | None:
-    result = subprocess.run(
-        ["defaults", "read", "com.apple.screencapture", "location"],
-        capture_output=True,
-        text=True,
-    )
-    return result.stdout.strip() if result.returncode == 0 else None
+    for key in SCREENSHOT_LOCATION_KEYS:
+        result = subprocess.run(
+            ["defaults", "read", "com.apple.screencapture", key],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    return None
 
 
 def set_screenshot_location(path: Path) -> None:
     path = Path(path).expanduser()
     path.mkdir(parents=True, exist_ok=True)
-    subprocess.run(
-        ["defaults", "write", "com.apple.screencapture", "location", str(path)],
-        check=True,
-    )
-    subprocess.run(["killall", "SystemUIServer"], capture_output=True)
+    for key in SCREENSHOT_LOCATION_KEYS:
+        subprocess.run(
+            ["defaults", "write", "com.apple.screencapture", key, str(path)],
+            check=True,
+        )
+    # macOS spawns a fresh `screencapture` per hotkey press, so the next
+    # screenshot picks this up without restarting anything.

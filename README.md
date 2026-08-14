@@ -53,23 +53,28 @@ ssrename --dry-run backfill --limit 3
 
 ### Where macOS saves screenshots
 
-```sh
-defaults write com.apple.screencapture location ~/Desktop/Screenshots
-```
-
-**Nothing else is normally needed.** The screenshot UI (`screencaptureui`) is not
-a resident process — macOS launches it each time you press ⇧⌘3/4/5, and it reads
-the preference at launch, so the next screenshot already goes to the new folder.
-
-If a screenshot still lands in the old place, restart the menu-bar agent, then
-log out and back in if that doesn't do it:
+**The preference key depends on the macOS version.** macOS 27 split the single
+`location` key into per-capture-type keys, matching the `target-screenshot` /
+`target-screenrecording` pair it already had. Write both, so the setting works
+either way:
 
 ```sh
-killall SystemUIServer
+defaults write com.apple.screencapture location-screenshot ~/Desktop/Screenshots  # macOS 27+
+defaults write com.apple.screencapture location ~/Desktop/Screenshots             # older
 ```
 
-`ssrename set-screenshot-dir` writes the preference, creates the directory, and
-runs that `killall` for you.
+Setting only the legacy `location` key on macOS 27 fails **silently** —
+`/usr/sbin/screencapture` finds no `location-screenshot`, falls back to its
+built-in `~/Desktop` default, and reports no error. `defaults read` still shows
+the `location` you wrote, which makes it look like the setting took.
+
+**No restart is needed.** macOS spawns a fresh `screencapture` for each
+⇧⌘3/4/5 press and it reads the preference at launch, so the next screenshot
+already goes to the new folder. (`killall SystemUIServer`, the advice you'll
+find elsewhere, does nothing — that process has not been involved for years.)
+
+`ssrename set-screenshot-dir` writes both keys and creates the directory for
+you.
 
 Capitalisation of the path doesn't matter here — ssrename resolves `watch_dir` to
 the directory's real on-disk name — but the preference and `watch_dir` must point
