@@ -78,11 +78,35 @@ at the same directory. `ssrename doctor` says so if they don't.
 ### Full Disk Access
 
 If the watch directory is under `~/Desktop`, `~/Documents`, or `~/Downloads`,
-macOS gates access behind TCC. A LaunchAgent cannot show a permission prompt, so
-grant Full Disk Access (System Settings → Privacy & Security) to the interpreter
-listed in `~/Library/LaunchAgents/com.sefk.ssrename.plist`, or point `watch_dir`
-somewhere unguarded such as `~/Pictures/screenshots`. Symptom: nothing is ever
-renamed and `~/Library/Logs/ssrename.log` shows no activity.
+macOS gates it behind TCC, and a LaunchAgent cannot show a permission prompt —
+so it fails silently. Symptom: nothing is ever renamed and
+`~/Library/Logs/ssrename.log` shows no activity.
+
+`ssrename doctor` reports whether reading the directory actually works and, when
+the directory is protected, prints the exact binary to add:
+
+```
+read access:       ok - listed 198 entries, read Screenshot 2026-03-23 at 8.04.42 AM.png
+...
+    /Users/you/.local/share/uv/python/cpython-3.14.4-macos-aarch64-none/bin/python3.14
+```
+
+That is the *interpreter*, not `~/.local/bin/ssrename`: a console script is a
+text file with a shebang, and TCC grants apply to the binary that runs. In System
+Settings → Privacy & Security → Full Disk Access, click **+**, then press
+**⌘⇧G** in the picker and paste the path — the tool lives in a hidden directory,
+so browsing to it won't work.
+
+Two things to know about verifying it:
+
+- `ssrename doctor` run from a terminal inherits *that terminal's* permissions,
+  so it can pass while the LaunchAgent still fails. Install the agent, take a
+  screenshot, and re-run `doctor` — it surfaces recent errors from the agent log.
+- `uv tool install` can change the interpreter path when it upgrades Python, and
+  the grant follows the old path. Re-run `doctor` if renaming stops.
+
+Avoiding all of this is also legitimate: point `watch_dir` at somewhere
+unprotected such as `~/Pictures/Screenshots` and no grant is needed.
 
 ## Configuration
 

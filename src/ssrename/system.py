@@ -23,9 +23,10 @@ def executable() -> str:
 def plist_contents(config_path: Path | None = None) -> dict:
     exe = executable()
     args = [exe] if Path(exe).name == "ssrename" else [exe, "-m", "ssrename"]
-    args.append("watch")
+    # Global flags go before the subcommand.
     if config_path:
         args += ["--config", str(config_path)]
+    args.append("watch")
     return {
         "Label": LABEL,
         "ProgramArguments": args,
@@ -36,6 +37,19 @@ def plist_contents(config_path: Path | None = None) -> dict:
         "StandardErrorPath": str(LOG_PATH),
         "EnvironmentVariables": {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin"},
     }
+
+
+def dry_run_agent_command(argv: list[str]) -> str | None:
+    """Run the plist's command with --check-args. None means it is usable."""
+    try:
+        result = subprocess.run(
+            [*argv, "--check-args"], capture_output=True, text=True, timeout=60
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        return f"{argv[0]}: {e}"
+    if result.returncode == 0:
+        return None
+    return (result.stderr or result.stdout).strip()[:600]
 
 
 def install_agent(config_path: Path | None = None) -> Path:
@@ -73,6 +87,63 @@ def agent_status() -> str:
         if "state = " in line:
             return line.strip()
     return "loaded"
+
+
+#: Directories macOS puts behind TCC, relative to the home directory.
+PROTECTED_DIRS = ("Desktop", "Documents", "Downloads")
+
+
+def is_protected(path: Path) -> bool:
+    """True if macOS gates this path behind a privacy permission."""
+    try:
+        relative = Path(path).expanduser().resolve().relative_to(Path.home().resolve())
+    except ValueError:
+        return False
+    return bool(relative.parts) and relative.parts[0] in PROTECTED_DIRS
+
+
+def tcc_binary() -> Path:
+    """The executable macOS actually judges — the interpreter, not the script.
+
+    A console script is a text file with a shebang; TCC grants apply to the
+    binary that ends up running, so this is what has to appear in the Full Disk
+    Access list.
+    """
+    return Path(sys.executable).resolve()
+
+
+def check_read_access(directory: Path) -> tuple[bool, str]:
+    """Try what the watcher does: list the directory and open a file in it."""
+    directory = Path(directory)
+    try:
+        entries = list(directory.iterdir())
+    except PermissionError as e:
+        return False, f"cannot list ({e.strerror})"
+    except OSError as e:
+        return False, f"cannot list ({e.strerror})"
+    files = [e for e in entries if e.is_file() and not e.name.startswith(".")]
+    if not files:
+        return True, f"listed {len(entries)} entries (no file to open)"
+    try:
+        with files[0].open("rb") as fh:
+            fh.read(1)
+    except PermissionError as e:
+        return False, f"can list but cannot read files ({e.strerror})"
+    except OSError as e:
+        return False, f"cannot read {files[0].name} ({e.strerror})"
+    return True, f"listed {len(entries)} entries, read {files[0].name}"
+
+
+def agent_log_tail(lines: int = 5) -> list[str]:
+    """Recent complaints from the agent, if it has been running."""
+    if not LOG_PATH.exists():
+        return []
+    try:
+        content = LOG_PATH.read_text(errors="replace").splitlines()
+    except OSError:
+        return []
+    bad = [ln for ln in content if "ERROR" in ln or "error:" in ln or "Traceback" in ln]
+    return bad[-lines:]
 
 
 def screenshot_location() -> str | None:
