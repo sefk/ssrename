@@ -51,6 +51,30 @@ Check it works before installing the agent:
 ssrename --dry-run backfill --limit 3
 ```
 
+### Where macOS saves screenshots
+
+```sh
+defaults write com.apple.screencapture location ~/Desktop/Screenshots
+```
+
+**Nothing else is normally needed.** The screenshot UI (`screencaptureui`) is not
+a resident process — macOS launches it each time you press ⇧⌘3/4/5, and it reads
+the preference at launch, so the next screenshot already goes to the new folder.
+
+If a screenshot still lands in the old place, restart the menu-bar agent, then
+log out and back in if that doesn't do it:
+
+```sh
+killall SystemUIServer
+```
+
+`ssrename set-screenshot-dir` writes the preference, creates the directory, and
+runs that `killall` for you.
+
+Capitalisation of the path doesn't matter here — ssrename resolves `watch_dir` to
+the directory's real on-disk name — but the preference and `watch_dir` must point
+at the same directory. `ssrename doctor` says so if they don't.
+
 ### Full Disk Access
 
 If the watch directory is under `~/Desktop`, `~/Documents`, or `~/Downloads`,
