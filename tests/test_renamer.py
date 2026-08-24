@@ -2,19 +2,22 @@ from pathlib import Path
 
 import pytest
 
-from ssrename.backends import Backend, BackendError, clean
+from ssrename.backends import Backend, BackendError, BackendUnavailable, clean
 from ssrename.config import Config
 from ssrename.renamer import Renamer
 
 
 class FakeBackend(Backend):
-    def __init__(self, description="github pull request", fail=False):
+    def __init__(self, description="github pull request", fail=False, down=False):
         self.description = description
         self.fail = fail
+        self.down = down
         self.calls: list[Path] = []
 
     def describe(self, image: Path) -> str:
         self.calls.append(image)
+        if self.down:
+            raise BackendUnavailable("cannot reach http://localhost:1234/v1")
         if self.fail:
             raise BackendError("no model")
         return self.description
@@ -81,6 +84,15 @@ def test_backend_failure_leaves_the_file_alone(tmp_path):
     src = _screenshot(tmp_path)
     result = r.process(src)
     assert result.error and src.exists()
+    assert not result.unavailable
+
+
+def test_unreachable_backend_is_flagged_separately(tmp_path):
+    cfg = Config(watch_dir=tmp_path, debounce_seconds=0)
+    r = Renamer(cfg, FakeBackend(down=True))
+    src = _screenshot(tmp_path)
+    result = r.process(src)
+    assert result.unavailable and result.error and src.exists()
 
 
 def test_missing_file_is_skipped(renamer, tmp_path):

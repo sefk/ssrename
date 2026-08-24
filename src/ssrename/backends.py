@@ -22,6 +22,16 @@ class BackendError(RuntimeError):
     pass
 
 
+class BackendUnavailable(BackendError):
+    """The backend could not be reached at all.
+
+    Nothing to do with the file we were asked about, so the caller can back off
+    and wait rather than working through the queue failing every item the same
+    way. Kept separate from a per-file failure (a bad response, a model that
+    returns nothing), which says something about that one screenshot.
+    """
+
+
 class Backend(ABC):
     """Produces a short natural-language description of an image."""
 
@@ -94,7 +104,7 @@ class OpenAIBackend(Backend):
                 f"{self.oa.base_url}{path} returned {e.code}: {e.read().decode()[:400]}"
             ) from e
         except OSError as e:
-            raise BackendError(f"cannot reach {self.oa.base_url}: {e}") from e
+            raise BackendUnavailable(f"cannot reach {self.oa.base_url}: {e}") from e
 
     def describe(self, image: Path) -> str:
         path, tmp = downscale(image, self.cfg.max_image_px)
@@ -148,7 +158,7 @@ class OpenAIBackend(Backend):
             ) as resp:
                 data = json.loads(resp.read())
         except OSError as e:
-            raise BackendError(f"cannot reach {self.oa.base_url}: {e}") from e
+            raise BackendUnavailable(f"cannot reach {self.oa.base_url}: {e}") from e
         ids = [m.get("id") for m in data.get("data", [])]
         if self.oa.model not in ids:
             raise BackendError(
@@ -174,7 +184,7 @@ class FmBackend(Backend):
                 timeout=timeout,
             )
         except FileNotFoundError as e:
-            raise BackendError(
+            raise BackendUnavailable(
                 f"{self.fm.binary!r} not found. The fm CLI ships with macOS 27; "
                 "on macOS 26 use the openai backend instead."
             ) from e

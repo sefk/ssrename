@@ -8,7 +8,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from .backends import Backend, BackendError
+from .backends import Backend, BackendError, BackendUnavailable
 from .config import Config
 from .fsutil import rename_no_clobber
 from .naming import target_path
@@ -27,6 +27,10 @@ class Result:
     dest: Path | None = None
     skipped: str | None = None
     error: str | None = None
+    # The error was "the backend is down", not "this file failed". Every other
+    # queued screenshot would fail identically, so callers should wait instead
+    # of working through the rest of the queue.
+    unavailable: bool = False
 
     @property
     def renamed(self) -> bool:
@@ -80,6 +84,8 @@ class Renamer:
 
         try:
             description = self.backend.describe(path)
+        except BackendUnavailable as e:
+            return Result(path, error=str(e), unavailable=True)
         except BackendError as e:
             return Result(path, error=str(e))
 

@@ -81,6 +81,27 @@ Capitalisation of the path doesn't matter here — ssrename resolves `watch_dir`
 the directory's real on-disk name — but the preference and `watch_dir` must point
 at the same directory. `ssrename doctor` says so if they don't.
 
+### Keeping the backend up across reboots
+
+With the `openai` backend, ssrename is only as available as the server it points
+at, and a local server does not necessarily come back after a restart. LM Studio
+is the case worth calling out: `lms daemon up` starts the background service but
+does **not** open the HTTP server, so port 1234 stays closed and every screenshot
+fails with `Connection refused`. Both are needed at login:
+
+```sh
+lms daemon up && lms server start
+```
+
+`lms server start` reuses whatever port it was last started on.
+
+ssrename handles the outage rather than fighting it: when the backend can't be
+reached it logs one error, pauses, and retries with a backoff that doubles from
+15s up to 10 minutes. Queued screenshots are kept, not dropped — when the server
+returns it logs `backend reachable again, resuming` and works through the
+backlog. So a dead backend costs you one line in the log and nothing else, and
+you can leave it down as long as you like.
+
 ### Full Disk Access (only if you move the watch directory)
 
 The default `~/Pictures/Screenshots` needs no permissions at all, and that is the
