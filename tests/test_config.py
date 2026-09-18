@@ -46,3 +46,10 @@ def test_partial_config_keeps_other_defaults(tmp_path):
     assert cfg.fm.model == "pcc"
     assert cfg.max_words == 5
     assert cfg.openai.base_url == "http://localhost:1234/v1"
+
+
+def test_fm_extra_args(tmp_path):
+    path = tmp_path / "config.toml"
+    path.write_text('[backend.fm]\nextra_args = ["--greedy", "--tool", "ocr"]\n')
+    assert load_config(path).fm.extra_args == ["--greedy", "--tool", "ocr"]
+    assert load_config(tmp_path / "nope.toml").fm.extra_args == []

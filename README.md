@@ -153,6 +153,7 @@ things you're most likely to change:
 | `backend.openai.base_url` | `http://localhost:1234/v1` | LM Studio's default port |
 | `backend.openai.model` | `qwen/qwen3.6-27b` | must accept images |
 | `backend.fm.model` | `device` | `device` or `pcc` |
+| `backend.fm.extra_args` | `[]` | extra `fm respond` flags, e.g. `["--greedy"]` |
 | `prompt.instructions` | see file | system prompt shaping the names |
 
 Reasoning models will spend their whole token budget thinking and return an

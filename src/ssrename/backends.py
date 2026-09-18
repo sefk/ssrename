@@ -207,6 +207,7 @@ class FmBackend(Backend):
             ]
             if self.fm.model and self.fm.model != "device":
                 args += ["--model", self.fm.model]
+            args += self.fm.extra_args
             text = clean(self._run(args, self.fm.timeout))
         finally:
             if tmp:

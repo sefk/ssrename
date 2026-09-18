@@ -79,6 +79,9 @@ extra_body = {{ reasoning_effort = "none" }}
 [backend.fm]
 # "device" for the on-device model, "pcc" for Private Cloud Compute.
 model = "device"
+# Extra flags for `fm respond`, e.g. ["--greedy"] or ["--greedy", "--tool", "ocr"].
+# `ssrename-bench` measures what each combination does to accuracy and speed.
+extra_args = []
 
 [prompt]
 instructions = """{DEFAULT_INSTRUCTIONS}"""
@@ -101,6 +104,7 @@ class FmBackendConfig:
     model: str = "device"
     binary: str = "fm"
     timeout: float = 180.0
+    extra_args: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -158,6 +162,7 @@ def load_config(path: Path | None = None) -> Config:
         model=fm.get("model", cfg.fm.model),
         binary=fm.get("binary", cfg.fm.binary),
         timeout=float(fm.get("timeout", cfg.fm.timeout)),
+        extra_args=[str(a) for a in fm.get("extra_args", [])],
     )
 
     prompt = data.get("prompt", {})
