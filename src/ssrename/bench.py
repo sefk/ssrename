@@ -228,7 +228,12 @@ def summarize(rows: list[dict]) -> dict:
         "errors": sum(1 for r in rows if r["error"]),
         "unreviewed": sum(1 for r in scored if not r["reviewed"]),
         "median": statistics.median(secs) if secs else 0.0,
-        "p90": statistics.quantiles(secs, n=10)[-1] if len(secs) > 1 else (secs[0] if secs else 0.0),
+        # Inclusive, so a small set's p90 stays within the times actually seen.
+        "p90": (
+            statistics.quantiles(secs, n=10, method="inclusive")[-1]
+            if len(secs) > 1
+            else (secs[0] if secs else 0.0)
+        ),
         "total": sum(secs),
     }
 
@@ -274,6 +279,8 @@ class SchemaFmBackend(FmBackend):
             data = json.loads(out)
         except json.JSONDecodeError as e:
             raise BackendError(f"fm ignored --schema and returned: {out[:200]!r}") from e
+        if not isinstance(data, dict):
+            raise BackendError(f"fm returned JSON that is not an object: {out[:200]!r}")
         return f"{data.get('app', '')} {data.get('subject', '')}"
 
 
@@ -450,6 +457,7 @@ def cmd_run(args) -> int:
             "openai_model": cfg.openai.model,
             "openai_base_url": cfg.openai.base_url,
             "fm_model": cfg.fm.model,
+            "fm_extra_args": list(cfg.fm.extra_args),
             "instructions": cfg.instructions,
             "prompt": cfg.prompt,
         },
@@ -473,6 +481,11 @@ def cmd_run(args) -> int:
                     continue
                 print(f"{name}: {status}")
                 report["variants"][name] = {"about": variant.about, "status": status}
+                if variant.kind == "fm":
+                    # The plain fm variant inherits the config's flags, so the
+                    # name alone does not say what ran.
+                    args_used = cfg.fm.extra_args if variant.fm_args is None else variant.fm_args
+                    report["variants"][name].update(fm_args=list(args_used), schema=variant.schema)
                 for case in cases:
                     row = {"variant": name, **evaluate(backend, case, set_dir, cfg.max_words)}
                     report["results"].append(row)

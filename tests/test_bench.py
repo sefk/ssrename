@@ -294,3 +294,36 @@ def test_rescore_applies_a_corrected_key_without_rerunning(tmp_path, monkeypatch
     row = json.loads(results.read_text())["results"][0]
     assert row["passed"] is True and row["reviewed"] is True
     assert "1 verdicts changed" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("out", ['"github issue"', '["github", "issue"]', "42"])
+def test_schema_backend_rejects_json_that_is_not_an_object(monkeypatch, tmp_path, out):
+    monkeypatch.setattr(
+        backends.subprocess, "run", lambda argv, **kw: subprocess.CompletedProcess(argv, 0, out, "")
+    )
+    backend = bench.VARIANTS["fm-schema"].backend(Config(max_image_px=0), tmp_path)
+    image = tmp_path / "a.png"
+    image.write_bytes(b"png")
+    with pytest.raises(BackendError, match="not an object"):
+        backend.describe(image)
+
+
+def test_p90_stays_within_observed_times():
+    row = {"passed": None, "app": None, "topic": None, "well_formed": True, "error": None, "reviewed": True}
+    s = bench.summarize([{**row, "secs": 1.0}, {**row, "secs": 3.0}])
+    assert 1.0 <= s["p90"] <= 3.0
+
+
+def test_run_records_the_fm_flags_each_variant_used(tmp_path, monkeypatch):
+    set_dir = _set(tmp_path, "a.png")
+    bench.append_cases(set_dir / bench.CASES_FILE, [bench.Case("a.png", topic=["x"])])
+    monkeypatch.setattr(bench.Variant, "backend", lambda self, cfg, workdir: FakeBackend({"a.png": "x y"}))
+    config = tmp_path / "config.toml"
+    config.write_text('[backend.fm]\nextra_args = ["--greedy"]\n')
+    out = tmp_path / "r.json"
+    bench.main(["--config", str(config), "run", str(set_dir), "-b", "fm", "-b", "fm-ocr", "-b", "openai", "--out", str(out)])
+    report = json.loads(out.read_text())
+    assert report["config"]["fm_extra_args"] == ["--greedy"]
+    assert report["variants"]["fm"]["fm_args"] == ["--greedy"]
+    assert report["variants"]["fm-ocr"]["fm_args"] == ["--greedy", "--tool", "ocr"]
+    assert "fm_args" not in report["variants"]["openai"]
