@@ -10,6 +10,7 @@ dependencies = [
 
 [project.scripts]
 ssrename = "ssrename.cli:main"
+ssrename-bench = "ssrename.bench:main"
 
 [dependency-groups]
 dev = [

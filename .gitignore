@@ -4,3 +4,5 @@ tmp/
 __pycache__/
 *.pyc
 .pytest_cache/
+# Benchmark sets are private screenshots; copy them between machines with rsync.
+bench/sets/

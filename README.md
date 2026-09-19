@@ -17,9 +17,10 @@ Two backends:
   against [LM Studio][lmstudio]; also works with [Ollama][ollama]'s `/v1`
   endpoint and vLLM. This is the one to use today.
 - **`fm`** — Apple's [`fm` CLI][fm], which ships preinstalled with macOS 27 and
-  can take `--image`. On macOS 26 the `fm` binary does not exist and the
-  on-device Foundation Model has no image input, so use the `openai` backend
-  until you upgrade.
+  can take `--image`. It needs no server and answers in about 2s, but names
+  screenshots far less accurately than a mid-size local vision model: see
+  [Benchmarking backends][bench]. On macOS 26 the `fm` binary
+  does not exist and the on-device Foundation Model has no image input.
 
 ## The thumbnail chip is not disturbed
 
@@ -189,6 +190,80 @@ ssrename --config ~/.config/ssrename/studio.toml install
 
 `--dry-run` works with everything; logs go to `~/Library/Logs/ssrename.log`.
 
+## Benchmarking backends
+
+`ssrename-bench` scores how well a backend names screenshots, so choosing a
+backend — or comparing the same one on two machines — rests on numbers rather
+than impressions. Run it from the repo checkout:
+
+```sh
+uv run ssrename-bench variants              # what can be measured
+uv run ssrename-bench harvest               # sample 20 of this machine's screenshots
+uv run ssrename-bench run <set>             # run every variant, score, save results
+uv run ssrename-bench compare A.json B.json # two runs side by side
+```
+
+**Sets.** A set is a directory under `bench/sets/` holding shrunk screenshots
+and a `cases.toml` answer key. Git ignores `bench/sets/` because screenshots
+are private — they show chats, names, and whatever else was on screen. To
+compare two machines on identical images, copy the set across:
+
+```sh
+rsync -a studio.local:src/ssrename/bench/sets/ bench/sets/
+uv run ssrename-bench run studio
+ls bench/sets/studio/results/            # one JSON file per run, <machine>-<time>
+uv run ssrename-bench compare bench/sets/studio/results/studio-<time>.json \
+                              bench/sets/studio/results/<laptop>-<time>.json
+```
+
+`harvest` samples evenly across the history of `watch_dir` (or `--from DIR`),
+shrinks each image to `max_image_px`, and drafts an answer from the filename.
+Those drafts inherit whatever the naming model got wrong, so open each image,
+correct its `app` and `topic`, and set `reviewed = true`; scores on unreviewed
+drafts are flagged as provisional. Raw `Screenshot ...` files get no draft.
+
+**Scoring.** Each case lists `app` phrases (the app or site, say `datatalk`)
+and `topic` phrases (what is on screen). A name passes when it contains one of
+each as whole words of the *final filename* — after ssrename's cleanup and
+five-word cut — so a misspelled app name is a miss. The summary also counts
+answers that weren't 2-5 plain lowercase words, errors, and latency.
+
+| Variant | Runs |
+| --- | --- |
+| `openai` | `[backend.openai]` from your config; skipped if unreachable |
+| `fm` | `fm respond` with your `[backend.fm]` settings |
+| `fm-greedy` | `fm` with `--greedy` |
+| `fm-ocr` | `fm` with `--greedy --tool ocr` |
+| `fm-schema` | `fm` with `--greedy` and a two-field `{app, subject}` output schema |
+| `fm-schema-ocr` | both of the above |
+
+Results land in `<set>/results/<machine>-<time>.json`, rewritten after every
+image so an interrupted run keeps what finished. Each records the chip, macOS
+build, and ssrename commit. Correcting `cases.toml` later doesn't need a re-run:
+`ssrename-bench rescore FILE...` re-judges saved names against the current key.
+
+`fm-greedy` is deterministic — repeat runs give identical names — which makes
+it a fingerprint for the on-device model. Run it on two machines over the same
+set: identical names mean the same model, so any quality gap lies elsewhere;
+different names mean a different model or macOS build. Plain `fm` samples, so
+its score moves by a point or two from run to run. `fm` also fails now and then
+with `LanguageModelError error -1`; it passes on retry, and counts as an error.
+
+On a Mac Studio (M1 Max, macOS 27.0 26A428), over 21 screenshots of browser
+apps, terminals, Slack, and Zoom:
+
+| Variant | Pass | Median time |
+| --- | --- | --- |
+| `openai` (qwen3.6-35b-a3b 4-bit, LM Studio) | 15/21 | 5.5s |
+| `fm` | 4/21 | 2.2s |
+| `fm-schema` | 5/21 | 2.6s |
+| `fm-ocr` | 10/21 | 7.1s |
+| `fm-schema-ocr` | 4/21 (13 errors) | 28.4s |
+
+`fm` mostly misses by naming the wrong app — Jira for GitHub, Discord for
+Slack, Reddit for a DataTalk page. OCR fixes much of that, but text-heavy
+screens overflow the model's 4,096-token context and fail outright.
+
 ## Development
 
 ```sh
@@ -199,3 +274,4 @@ uv run pytest
 [lmstudio]: https://lmstudio.ai
 [ollama]: https://ollama.com
 [fm]: https://developer.apple.com/videos/play/wwdc2026/334/
+[bench]: #benchmarking-backends
