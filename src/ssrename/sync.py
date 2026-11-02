@@ -155,6 +155,7 @@ class Syncer:
         self._poked = threading.Event()
         self._lock = threading.Lock()
         self._down = False
+        self._first = True
 
     # --- what is synced -------------------------------------------------
 
@@ -379,6 +380,11 @@ class Syncer:
             log.info("sync with %s: %s", self.peer, report.summary())
             for name in report.trashed:
                 log.info("sync: trashed %s (deleted on %s)", name, self.peer)
+        elif self._first:
+            # Said once, so a fresh start shows that sync works even when
+            # there was nothing to move.
+            log.info("sync with %s: up to date", self.peer)
+        self._first = False
 
     def run(self, stop: threading.Event) -> None:
         """Sweep on start, after changes, and every interval.

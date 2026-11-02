@@ -344,3 +344,11 @@ def test_sync_config_loads(tmp_path):
     assert cfg.sync.interval_seconds == 60
     assert cfg.sync.extensions == ("png",)
     assert load_config(tmp_path / "nope.toml").sync.peer == ""
+
+
+def test_first_sweep_says_up_to_date_once(pair, caplog):
+    studio, _ = pair
+    caplog.set_level("INFO", logger="ssrename")
+    studio.syncer.run_once()
+    studio.syncer.run_once()
+    assert [r.getMessage() for r in caplog.records] == ["sync with laptop: up to date"]

@@ -39,15 +39,25 @@ are considered, so renaming is idempotent and your own filenames are safe.
 ```sh
 git clone <this repo> ~/src/ssrename
 cd ~/src/ssrename
-uv tool install .            # or: uv sync, then `uv run ssrename ...`
-
-ssrename init                # writes ~/.config/ssrename/config.toml
-ssrename set-screenshot-dir  # points macOS at config's watch_dir
-ssrename doctor              # checks config, backend, macOS settings
-ssrename install             # LaunchAgent, starts now and at login
+bin/deploy
 ```
 
-Check it works before installing the agent:
+`bin/deploy` does the whole install, and is also how you upgrade after a
+`git pull`; it is safe to re-run. It:
+
+1. installs the tool with `uv tool install --reinstall .`,
+2. writes the default config if there is none (`ssrename init`),
+3. points macOS screenshots at `watch_dir` (`ssrename set-screenshot-dir`),
+4. if `[sync] peer` is set, sets up SSH to the peer (see [Syncing two
+   Macs][sync]),
+5. (re)starts the LaunchAgent (`ssrename install`) and waits for its first
+   sync,
+6. runs `ssrename doctor`.
+
+`bin/deploy --remove` stops and removes the LaunchAgent. The steps also work
+one at a time, as the `ssrename` commands named above.
+
+Check it works on a few files before letting the agent loose:
 
 ```sh
 ssrename --dry-run backfill --limit 3
@@ -189,18 +199,24 @@ round. It goes straight from one machine to the other over SSH, using
 peer = "sef-m3"     # on the desktop; "studio" on the laptop
 ```
 
-Each side needs to be able to SSH to the other without a password:
+Then run `bin/deploy` on both Macs. Each side needs to be able to SSH to the
+other without a password, and `bin/deploy` sets that up:
 
-1. **Remote Login** on both: System Settings → General → Sharing → Remote
-   Login.
-2. **Keys** both ways: `ssh-copy-id studio` from the laptop, and
-   `ssh-copy-id sef-m3` from the desktop. Then `ssh studio true` should succeed
-   without a prompt. The LaunchAgent cannot answer a passphrase prompt, so the
-   key has to be in the macOS keychain or ssh-agent, or have no passphrase.
-3. `ssrename sync` runs one sync in the foreground and lists what it moved;
-   `ssrename doctor` checks the connection. After that, the LaunchAgent syncs
-   whenever the folder changes and every `interval_seconds` (default 5
-   minutes).
+1. **Remote Login** has to be on (System Settings → General → Sharing → Remote
+   Login). `bin/deploy` warns if it is off; it can't switch it on for you.
+2. **A key.** If the Mac has no SSH key, neither in ssh-agent nor at
+   `~/.ssh/id_*`, `bin/deploy` creates `~/.ssh/id_ed25519` with no
+   passphrase. The LaunchAgent cannot answer a passphrase prompt, so a key
+   with a passphrase only works if it is in the macOS keychain or ssh-agent.
+3. **The peer accepts it.** If the peer turns the key down, `bin/deploy` runs
+   `ssh-copy-id`, which asks for your password on the peer once.
+4. **The agent can use it.** `bin/deploy` waits for the LaunchAgent's first
+   sync and shows the result, so a key that works from your terminal but not
+   from the agent is caught right away.
+
+After that, the LaunchAgent syncs whenever the folder changes and every
+`interval_seconds` (default 5 minutes). `ssrename sync` runs one sync in the
+foreground and lists what it moved; `ssrename doctor` checks the connection.
 
 How it behaves:
 

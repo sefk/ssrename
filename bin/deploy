@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+# Install or upgrade ssrename on this Mac, set up sync with its peer, and check
+# the result. Safe to re-run: every step either does its job or sees it's done.
+#
+#   bin/deploy            install/upgrade the tool, (re)start the LaunchAgent,
+#                         set up SSH keys for [sync], wait for a first sync
+#   bin/deploy --remove   stop and remove the LaunchAgent (config and tool stay)
+#
+# Interactive only when SSH keys have to be copied to the peer: ssh-copy-id asks
+# for your password on the peer, once.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+UV=/opt/homebrew/bin/uv
+[ -x "$UV" ] || UV="$(command -v uv)"
+unset VIRTUAL_ENV
+
+LOG="$HOME/Library/Logs/ssrename.log"
+SSRENAME="$HOME/.local/bin/ssrename"
+
+say() { printf '\n== %s\n' "$*"; }
+warn() { printf 'WARNING: %s\n' "$*" >&2; }
+
+if [ "${1:-}" = "--remove" ]; then
+  "$SSRENAME" uninstall
+  exit 0
+fi
+[ -z "${1:-}" ] || { echo "usage: $0 [--remove]" >&2; exit 1; }
+
+say "installing ssrename from $ROOT"
+"$UV" tool install --reinstall --quiet "$ROOT"
+TOOL_PY="$("$UV" tool dir)/ssrename/bin/python"
+
+# Read settings the way ssrename itself does, defaults included.
+cfg() { "$TOOL_PY" -c "from ssrename.config import load_config; c = load_config(); print($1)"; }
+
+"$SSRENAME" init                 # writes the default config only if there is none
+"$SSRENAME" set-screenshot-dir   # point macOS at watch_dir (idempotent)
+
+PEER="$(cfg c.sync.peer)"
+
+# --- sync: SSH both ways ------------------------------------------------------
+setup_ssh() {
+  local peer="$1" out
+  say "sync: checking SSH to $peer"
+
+  if ! nc -z -G 2 localhost 22 >/dev/null 2>&1; then
+    warn "Remote Login is off on this Mac, so $peer cannot sync with it."
+    warn "Turn it on: System Settings > General > Sharing > Remote Login."
+  fi
+
+  # A key with a default name is offered to every host without any ssh config,
+  # and with no passphrase the LaunchAgent can use it unattended.
+  if ! ssh-add -L >/dev/null 2>&1 && ! ls "$HOME"/.ssh/id_{ed25519,ecdsa,rsa} >/dev/null 2>&1; then
+    echo "no SSH key on this Mac; creating ~/.ssh/id_ed25519 (no passphrase, for the LaunchAgent)"
+    ssh-keygen -q -t ed25519 -N "" -C "$(scutil --get LocalHostName) ssrename" -f "$HOME/.ssh/id_ed25519"
+  fi
+
+  if out="$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$peer" true 2>&1)"; then
+    echo "ssh $peer: ok"
+    return 0
+  fi
+  case "$out" in
+    *"Permission denied"*)
+      echo "ssh $peer: key not accepted yet; copying it (enter your password on $peer)"
+      if ssh-copy-id "$peer" && ssh -o BatchMode=yes -o ConnectTimeout=10 "$peer" true; then
+        echo "ssh $peer: ok"
+      else
+        warn "ssh $peer still fails after ssh-copy-id; sync will log errors until it works"
+      fi
+      ;;
+    *"Host key verification failed"*)
+      warn "ssh $peer: unknown host key. Run 'ssh $peer' once to accept it, then re-run bin/deploy."
+      ;;
+    *)
+      warn "ssh $peer: unreachable ($out). Sync will catch up when it is online;"
+      warn "re-run bin/deploy then if its keys still need setting up."
+      ;;
+  esac
+}
+
+if [ -n "$PEER" ]; then
+  setup_ssh "$PEER"
+else
+  say "sync: off"
+  echo "To sync with another Mac, add to $(cfg c.source):"
+  echo '  [sync]'
+  echo '  peer = "<the other Mac'"'"'s Tailscale name>"'
+  echo "then re-run bin/deploy (on both Macs)."
+fi
+
+# --- the LaunchAgent ------------------------------------------------------------
+say "starting the LaunchAgent"
+before=0
+[ -f "$LOG" ] && before="$(wc -l < "$LOG")"
+"$SSRENAME" install
+
+# Wait for the agent's first sync, so a key the LaunchAgent cannot use shows
+# up now rather than as a quiet error in the log later.
+if [ -n "$PEER" ]; then
+  say "sync: waiting for the agent's first sync with $PEER"
+  for _ in $(seq 1 60); do
+    line="$(tail -n +"$((before + 1))" "$LOG" | grep -E "sync with $PEER:|sync peer $PEER|ERROR sync" | tail -1 || true)"
+    [ -n "$line" ] && break
+    sleep 1
+  done
+  echo "${line:-no sync result logged within 60s; check $LOG}"
+  case "$line" in *ERROR*) warn "the LaunchAgent's sync failed; see $LOG" ;; esac
+fi
+
+say "ssrename doctor"
+"$SSRENAME" doctor || warn "doctor reported a problem (above)"
