@@ -91,3 +91,46 @@ def test_wait_for_agent_succeeds_when_the_log_grows(monkeypatch, tmp_path):
     finally:
         timer.cancel()
     assert ok and "running" in detail
+
+
+class _Launchctl:
+    """Fake subprocess.run for install_agent: bootstrap fails `failures` times."""
+
+    def __init__(self, failures):
+        self.failures = failures
+        self.bootstraps = 0
+
+    def __call__(self, argv, **kw):
+        class R:
+            returncode, stdout, stderr = 0, "501\n", ""
+
+        r = R()
+        if argv[:2] == ["launchctl", "bootstrap"]:
+            self.bootstraps += 1
+            if self.bootstraps <= self.failures:
+                r.returncode, r.stderr = 5, "Bootstrap failed: 5: Input/output error"
+        elif argv[:2] == ["launchctl", "print"]:
+            r.returncode = 113  # not loaded
+        return r
+
+
+def _install(monkeypatch, tmp_path, failures):
+    fake = _Launchctl(failures)
+    monkeypatch.setattr(system, "PLIST_PATH", tmp_path / "agent.plist")
+    monkeypatch.setattr(system, "LOG_PATH", tmp_path / "ssrename.log")
+    monkeypatch.setattr(system.subprocess, "run", fake)
+    return fake
+
+
+def test_install_retries_a_bootstrap_that_races_bootout(monkeypatch, tmp_path):
+    fake = _install(monkeypatch, tmp_path, failures=1)
+    assert system.install_agent() == tmp_path / "agent.plist"
+    assert fake.bootstraps == 2
+
+
+def test_install_reports_launchctls_message(monkeypatch, tmp_path):
+    import pytest
+
+    _install(monkeypatch, tmp_path, failures=2)
+    with pytest.raises(system.AgentInstallError, match="Input/output error"):
+        system.install_agent()

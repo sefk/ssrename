@@ -65,12 +65,28 @@ def install_agent(config_path: Path | None = None) -> Path:
         plistlib.dump(plist_contents(config_path), fh)
     uid = subprocess.run(["id", "-u"], capture_output=True, text=True).stdout.strip()
     subprocess.run(["launchctl", "bootout", f"gui/{uid}/{LABEL}"], capture_output=True)
-    subprocess.run(
-        ["launchctl", "bootstrap", f"gui/{uid}", str(PLIST_PATH)],
-        capture_output=True,
-        check=True,
-    )
+    bootstrap = ["launchctl", "bootstrap", f"gui/{uid}", str(PLIST_PATH)]
+    result = subprocess.run(bootstrap, capture_output=True, text=True)
+    if result.returncode != 0:
+        # `bootout` can return while the old agent is still being torn down,
+        # and bootstrapping the same label then fails with error 5. Wait for
+        # it to be gone and try once more.
+        _wait_until_unloaded()
+        result = subprocess.run(bootstrap, capture_output=True, text=True)
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip() or f"exit {result.returncode}"
+        raise AgentInstallError(f"launchctl bootstrap failed: {detail}")
     return PLIST_PATH
+
+
+class AgentInstallError(Exception):
+    pass
+
+
+def _wait_until_unloaded(timeout: float = 10.0) -> None:
+    deadline = time.monotonic() + timeout
+    while agent_fields() is not None and time.monotonic() < deadline:
+        time.sleep(0.25)
 
 
 def wait_for_agent(timeout: float = 10.0) -> tuple[bool, str]:

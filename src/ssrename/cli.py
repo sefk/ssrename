@@ -185,7 +185,13 @@ def cmd_install(args) -> int:
     if probe is not None:
         print(f"refusing to install: the agent command fails\n{probe}", file=sys.stderr)
         return 1
-    path = system.install_agent(Path(cfg_path) if cfg_path else None)
+    try:
+        path = system.install_agent(Path(cfg_path) if cfg_path else None)
+    except system.AgentInstallError as e:
+        print(f"install failed: {e}", file=sys.stderr)
+        print("Run `ssrename install` again; if it keeps failing, check", file=sys.stderr)
+        print(f"  launchctl print gui/$(id -u)/{system.LABEL}", file=sys.stderr)
+        return 1
     print(f"installed {path}")
     started, detail = system.wait_for_agent()
     print(f"{'started' if started else 'DID NOT START'}: {detail}")
