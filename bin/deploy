@@ -51,7 +51,12 @@ setup_ssh() {
 
   # A key with a default name is offered to every host without any ssh config,
   # and with no passphrase the LaunchAgent can use it unattended.
-  if ! ssh-add -L >/dev/null 2>&1 && ! ls "$HOME"/.ssh/id_{ed25519,ecdsa,rsa} >/dev/null 2>&1; then
+  local have_key=0 f
+  ssh-add -L >/dev/null 2>&1 && have_key=1
+  for f in "$HOME"/.ssh/id_ed25519 "$HOME"/.ssh/id_ecdsa "$HOME"/.ssh/id_rsa; do
+    [ -e "$f" ] && have_key=1
+  done
+  if [ "$have_key" = 0 ]; then
     echo "no SSH key on this Mac; creating ~/.ssh/id_ed25519 (no passphrase, for the LaunchAgent)"
     ssh-keygen -q -t ed25519 -N "" -C "$(scutil --get LocalHostName) ssrename" -f "$HOME/.ssh/id_ed25519"
   fi
