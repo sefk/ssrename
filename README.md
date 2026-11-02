@@ -31,8 +31,11 @@ more, then waits for the file size to stop changing, and re-checks that the file
 is still there immediately before renaming. Drag it out of the chip, mark it up,
 or delete it — ssrename either never sees it or quietly skips it.
 
-Only files still carrying macOS's own name (`Screenshot ...`, `Screen Shot ...`)
-are considered, so renaming is idempotent and your own filenames are safe.
+Only files still carrying the name they were captured with are considered:
+macOS's own (`Screenshot ...`, `Screen Shot ...`), and `IMG_1234.PNG`, which is
+what an iPhone screenshot is called when you AirDrop it in. So renaming is
+idempotent and your own filenames are safe. An iPhone screenshot's name gets
+the time it was taken, which AirDrop keeps as the file's creation time.
 
 ## Install
 
@@ -223,8 +226,9 @@ foreground and lists what it moved; `ssrename doctor` checks the connection.
 How it behaves:
 
 - **Only renamed images are synced** (`png`, `jpg`, `jpeg`, `heic`; recordings
-  are not). A raw `Screenshot ...` file stays on the machine that took it until
-  that machine has renamed it, so the model never names the same image twice.
+  are not). A raw `Screenshot ...` or `IMG_1234.PNG` file stays on the machine
+  it landed on until that machine has renamed it, so the model never names the
+  same image twice.
 - **Nothing is ever overwritten.** If both machines already have a file with the
   same name, each keeps its own.
 - **Deletes are synced.** Deleting a screenshot on one Mac moves the other

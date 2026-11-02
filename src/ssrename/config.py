@@ -36,8 +36,10 @@ DEFAULT_CONFIG_TEXT = f'''\
 watch_dir = "~/Pictures/Screenshots"
 
 # Only files whose names match this regex are considered. The default matches
-# the names macOS gives new screenshots, so already-renamed files are left alone.
-filename_pattern = "^(Screenshot|Screen Shot|Screen Recording) "
+# the names macOS gives new screenshots, and IMG_1234.PNG, which is what an
+# iPhone screenshot is called when AirDropped in. Already-renamed files never
+# match, so they are left alone.
+filename_pattern = "^((Screenshot|Screen Shot|Screen Recording) |IMG_[0-9]+[.])"
 
 # Seconds to wait after a file appears before renaming it. macOS writes the file
 # only after the corner thumbnail expires, but this leaves extra room so the
@@ -139,7 +141,7 @@ class SyncConfig:
 @dataclass
 class Config:
     watch_dir: Path = Path("~/Pictures/Screenshots").expanduser()
-    filename_pattern: str = "^(Screenshot|Screen Shot|Screen Recording) "
+    filename_pattern: str = "^((Screenshot|Screen Shot|Screen Recording) |IMG_[0-9]+[.])"
     debounce_seconds: float = 8.0
     poll_seconds: float = 60.0
     extensions: tuple[str, ...] = ("png", "jpg", "jpeg")

@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 import pytest
@@ -66,6 +67,22 @@ def test_accepts_narrow_nbsp_names(renamer, tmp_path):
 
 def test_accepts_legacy_screen_shot_names(renamer, tmp_path):
     assert renamer.is_candidate(tmp_path / "Screen Shot 2019-01-02 at 3.04.05 PM.png")
+
+
+def test_accepts_airdropped_iphone_screenshots(renamer, tmp_path):
+    assert renamer.is_candidate(tmp_path / "IMG_9471.PNG")
+    assert renamer.is_candidate(tmp_path / "IMG_0001.png")
+    # Not an iPhone capture name, or not an image we rename.
+    for name in ["IMG_notes.png", "MY_IMG_9471.png", "IMG_9471.HEIC", "IMG_9471.MOV"]:
+        assert not renamer.is_candidate(tmp_path / name)
+
+
+def test_iphone_screenshot_gets_a_dated_name(renamer, tmp_path):
+    src = _screenshot(tmp_path, "IMG_9471.PNG")
+    result = renamer.process(src)
+    assert result.renamed
+    # No date in the name, so it comes from the file; the extension is lowercased.
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-github-pull-request[.]png", result.dest.name)
 
 
 def test_dry_run_leaves_the_file_alone(tmp_path):

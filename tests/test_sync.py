@@ -113,6 +113,7 @@ def test_only_renamed_images_are_synced(pair):
     studio.add("2026-11-01-09-00-demo-recording.mov")
     studio.add(".hidden.png")
     studio.add("notes.txt")
+    studio.add("IMG_9471.PNG")  # an AirDropped iPhone screenshot, not renamed yet
     studio.add("photo.heic")
     studio.sweep()
     assert laptop.names() == {"photo.heic"}
