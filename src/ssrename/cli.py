@@ -44,7 +44,9 @@ def cmd_sync(args) -> int:
         print("sync is off: set [sync] peer in the config", file=sys.stderr)
         return 1
     try:
-        report = Syncer(cfg, dry_run=args.dry_run).sweep()
+        report = Syncer(cfg, dry_run=args.dry_run).sweep(
+            accept_deletions=args.accept_deletions
+        )
     except PeerUnreachable as e:
         print(f"peer {cfg.sync.peer} unreachable: {e}", file=sys.stderr)
         return 1
@@ -268,9 +270,15 @@ def build_parser() -> argparse.ArgumentParser:
     backfill.add_argument("--limit", type=int, default=0)
     backfill.set_defaults(func=cmd_backfill)
 
-    sub.add_parser(
+    sync = sub.add_parser(
         "sync", parents=[common], help="sync with the [sync] peer once, now"
-    ).set_defaults(func=cmd_sync)
+    )
+    sync.add_argument(
+        "--accept-deletions",
+        action="store_true",
+        help="propagate deletions even when many files vanished at once",
+    )
+    sync.set_defaults(func=cmd_sync)
 
     sub.add_parser(
         "doctor", parents=[common], help="check config, backend, and macOS settings"

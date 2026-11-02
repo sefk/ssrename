@@ -220,8 +220,8 @@ How it behaves:
 - **Mass disappearance is refused.** If more than half of the synced files
   vanish at once (at least 10), ssrename assumes the folder is unmounted or
   `watch_dir` is wrong rather than that you deleted them all, logs an error,
-  and does not delete anything on the peer. If you really did delete them,
-  remove `~/.local/state/ssrename/sync.json` and run `ssrename sync`.
+  and does not delete anything on the peer. If you really did delete them, run
+  `ssrename sync --accept-deletions`.
 
 The first sync merges both folders' full histories. ssrename remembers what it
 has synced, and the names you have deleted, in

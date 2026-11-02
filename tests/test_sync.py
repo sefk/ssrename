@@ -79,8 +79,8 @@ class Machine:
     def state(self) -> SyncState:
         return SyncState.load(self.syncer.state_path)
 
-    def sweep(self):
-        return self.syncer.sweep()
+    def sweep(self, **kw):
+        return self.syncer.sweep(**kw)
 
 
 @pytest.fixture
@@ -148,6 +148,48 @@ def test_deletion_propagates_to_the_trash_and_is_not_pulled_back(pair):
     assert not laptop.sweep().changed
 
 
+def test_peer_sweeping_first_does_not_undo_a_deletion(pair):
+    """Codex review: the peer swept before the deleting side recorded its
+    tombstone, and sent its stale copy straight back."""
+    studio, laptop = pair
+    studio.add("gone.png")
+    studio.sweep()
+    laptop.sweep()
+    (studio.shots / "gone.png").unlink()
+    time.sleep(0.01)
+    assert laptop.sweep().sent == []
+    assert "gone.png" not in studio.names()
+    studio.sweep()
+    laptop.sweep()
+    assert "gone.png" not in laptop.names()
+    assert "gone.png" in studio.state().tombstones
+
+
+def test_deletion_during_a_sweep_is_still_recorded(pair, monkeypatch):
+    """Codex review: a file deleted while transfers ran dropped out of `known`
+    without a tombstone, so the peer's copy came back later."""
+    studio, laptop = pair
+    studio.add("mid.png")
+    studio.sweep()
+    laptop.sweep()
+    laptop.add("new.png")  # gives the next sweep a transfer to interrupt
+    real = studio.syncer._rsync
+
+    def rsync_then_delete(names, source, dest):
+        real(names, source, dest)
+        (studio.shots / "mid.png").unlink(missing_ok=True)
+
+    monkeypatch.setattr(studio.syncer, "_rsync", rsync_then_delete)
+    studio.sweep()
+    monkeypatch.setattr(studio.syncer, "_rsync", real)
+    assert "mid.png" in studio.state().known
+    assert "new.png" in studio.state().known
+    time.sleep(0.01)
+    assert studio.sweep().deleted == ["mid.png"]
+    laptop.sweep()
+    assert "mid.png" not in laptop.names()
+
+
 def test_a_restored_file_beats_the_older_tombstone(pair):
     studio, laptop = pair
     studio.add("oops.png")
@@ -194,6 +236,14 @@ def test_mass_disappearance_is_refused(pair):
     assert studio.state().tombstones == {}
     laptop.sweep()
     assert len(laptop.names()) == 12  # nothing trashed on the peer
+
+    # Codex review: the documented override used to be "delete the state file",
+    # which pulled everything back instead.
+    time.sleep(0.01)
+    report = studio.sweep(accept_deletions=True)
+    assert len(report.deleted) == 12 and report.received == []
+    laptop.sweep()
+    assert laptop.names() == set()
 
 
 def test_unreachable_peer_still_records_local_deletions(pair, tmp_path):

@@ -196,8 +196,8 @@ class Syncer:
             raise PeerUnreachable(err or f"ssh {self.peer} failed")
         return result
 
-    def remote_state(self) -> tuple[set[str], dict[str, float]]:
-        """The peer's eligible names and its tombstones, in one round trip."""
+    def remote_state(self) -> tuple[set[str], SyncState]:
+        """The peer's eligible names and its sync state, in one round trip."""
         command = (
             f"cat {shlex.quote(REMOTE_STATE_PATH)} 2>/dev/null; echo; echo {LISTING_MARKER}; "
             f"cd -- {shlex.quote(self.remote_dir)} && ls -1A"
@@ -216,7 +216,7 @@ class Syncer:
             # Without its tombstones we would push back what the peer deleted.
             raise SyncError(f"unreadable sync state on {self.peer}: {e}")
         names = {n for n in listing.splitlines() if self.eligible(n)}
-        return names, peer_state.tombstones
+        return names, peer_state
 
     def _rsync(self, names: list[str], source: str, dest: str) -> None:
         if not names:
@@ -259,12 +259,16 @@ class Syncer:
 
     # --- the sweep ------------------------------------------------------------
 
-    def sweep(self) -> SweepReport:
-        """One full reconciliation with the peer. Raises SyncError/PeerUnreachable."""
-        with self._lock:
-            return self._sweep()
+    def sweep(self, accept_deletions: bool = False) -> SweepReport:
+        """One full reconciliation with the peer. Raises SyncError/PeerUnreachable.
 
-    def _sweep(self) -> SweepReport:
+        `accept_deletions` overrides the mass-disappearance guard, for when the
+        user really did delete that many files.
+        """
+        with self._lock:
+            return self._sweep(accept_deletions)
+
+    def _sweep(self, accept_deletions: bool) -> SweepReport:
         report = SweepReport()
         now = time.time()
         try:
@@ -282,11 +286,12 @@ class Syncer:
                 del state.tombstones[name]
 
         vanished = sorted(state.known - local.keys())
-        if len(vanished) >= MASS_DELETE_MIN and len(vanished) > MASS_DELETE_FRACTION * len(state.known):
+        mass = len(vanished) >= MASS_DELETE_MIN and len(vanished) > MASS_DELETE_FRACTION * len(state.known)
+        if mass and not accept_deletions:
             report.refused = (
                 f"{len(vanished)} of {len(state.known)} synced screenshots vanished from "
                 f"{self.cfg.watch_dir} at once; not treating that as deletions. If you "
-                f"really deleted them, remove {self.state_path} and sync again."
+                f"really deleted them, run `ssrename sync --accept-deletions`."
             )
             raise SyncError(report.refused)
         for name in vanished:
@@ -294,7 +299,7 @@ class Syncer:
         report.deleted = vanished
 
         try:
-            remote, peer_tombstones = self.remote_state()
+            remote, peer_state = self.remote_state()
         except SyncError:
             # Deletions are facts about this machine; keep them even offline.
             if not self.dry_run:
@@ -302,6 +307,7 @@ class Syncer:
                 state.save(self.state_path)
             raise
 
+        peer_tombstones = peer_state.tombstones
         # The peer deleted these after our copy arrived: follow suit.
         for name, when in sorted(peer_tombstones.items()):
             if name in local and when > local[name]:
@@ -310,7 +316,10 @@ class Syncer:
                 del local[name]
                 report.trashed.append(name)
 
-        report.sent = sorted(local.keys() - remote)
+        # Names the peer had and has lost are deletions it has not recorded as
+        # tombstones yet. Sending them would undo the delete before it counts.
+        unrecorded = peer_state.known - remote
+        report.sent = sorted(local.keys() - remote - unrecorded)
         report.received = sorted(remote - local.keys() - state.tombstones.keys() - peer_tombstones.keys())
 
         if self.dry_run:
@@ -319,20 +328,24 @@ class Syncer:
             self._rsync(report.sent, f"{self.cfg.watch_dir}/", self._remote_spec())
             self._rsync(report.received, self._remote_spec(), f"{self.cfg.watch_dir}/")
         finally:
-            # Whatever made it across is now known, so a later deletion of it counts.
+            # Start from what this sweep began with, not a fresh scan: a file
+            # deleted while the transfers ran must stay known, so the next
+            # sweep sees it vanish and records the deletion. Received files
+            # count only once they have actually arrived.
             try:
-                state.known = set(self.local_names())
+                arrived = set(report.received) & set(self.local_names())
             except OSError:
-                state.known = set(local)
+                arrived = set()
+            state.known = set(local) | arrived
             state.save(self.state_path)
         return report
 
     def check(self) -> str:
         """For `doctor`: can we reach the peer and list its directory?"""
-        remote, tombstones = self.remote_state()
+        remote, peer_state = self.remote_state()
         return (
             f"{self.peer}:{self.remote_dir} ok - {len(remote)} there, "
-            f"{len(self.local_names())} here, {len(tombstones)} peer deletion(s)"
+            f"{len(self.local_names())} here, {len(peer_state.tombstones)} peer deletion(s)"
         )
 
     # --- background loop ----------------------------------------------------
