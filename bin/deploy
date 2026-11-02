@@ -49,29 +49,32 @@ setup_ssh() {
     warn "Turn it on: System Settings > General > Sharing > Remote Login."
   fi
 
-  # A key with a default name is offered to every host without any ssh config,
-  # and with no passphrase the LaunchAgent can use it unattended.
-  local have_key=0 f
-  ssh-add -L >/dev/null 2>&1 && have_key=1
-  for f in "$HOME"/.ssh/id_ed25519 "$HOME"/.ssh/id_ecdsa "$HOME"/.ssh/id_rsa; do
-    [ -e "$f" ] && have_key=1
-  done
-  if [ "$have_key" = 0 ]; then
-    echo "no SSH key on this Mac; creating ~/.ssh/id_ed25519 (no passphrase, for the LaunchAgent)"
-    ssh-keygen -q -t ed25519 -N "" -C "$(scutil --get LocalHostName) ssrename" -f "$HOME/.ssh/id_ed25519"
+  # Sync's own key, no passphrase, used with no agent: the LaunchAgent cannot
+  # type a passphrase or approve a 1Password Touch ID prompt, and an agent that
+  # wants one stalls every connection until it gives up.
+  local key
+  key="$(cfg 'c.sync.identity_file')"
+  key="${key/#\~/$HOME}"
+  if [ ! -e "$key" ]; then
+    echo "creating $key, the key sync uses (no passphrase, for the LaunchAgent)"
+    ssh-keygen -q -t ed25519 -N "" -C "ssrename sync from $(scutil --get LocalHostName)" -f "$key"
   fi
+  local -a key_ssh=(ssh -i "$key" -o IdentitiesOnly=yes -o IdentityAgent=none
+                    -o BatchMode=yes -o ConnectTimeout=10)
 
-  if out="$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$peer" true 2>&1)"; then
-    echo "ssh $peer: ok"
+  if out="$("${key_ssh[@]}" "$peer" true 2>&1)"; then
+    echo "ssh $peer with $key: ok"
     return 0
   fi
   case "$out" in
     *"Permission denied"*)
-      echo "ssh $peer: key not accepted yet; copying it (enter your password on $peer)"
-      if ssh-copy-id "$peer" && ssh -o BatchMode=yes -o ConnectTimeout=10 "$peer" true; then
-        echo "ssh $peer: ok"
+      # ssh-copy-id logs in the usual way (agent, 1Password, or password), so
+      # this is the one step that may ask you for something.
+      echo "ssh $peer: $peer doesn't accept $key yet; adding it there"
+      if ssh-copy-id -i "$key.pub" "$peer" && "${key_ssh[@]}" "$peer" true; then
+        echo "ssh $peer with $key: ok"
       else
-        warn "ssh $peer still fails after ssh-copy-id; sync will log errors until it works"
+        warn "ssh $peer still fails with $key; sync will log errors until it works"
       fi
       ;;
     *"Host key verification failed"*)

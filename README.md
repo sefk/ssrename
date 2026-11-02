@@ -204,12 +204,14 @@ other without a password, and `bin/deploy` sets that up:
 
 1. **Remote Login** has to be on (System Settings → General → Sharing → Remote
    Login). `bin/deploy` warns if it is off; it can't switch it on for you.
-2. **A key.** If the Mac has no SSH key, neither in ssh-agent nor at
-   `~/.ssh/id_*`, `bin/deploy` creates `~/.ssh/id_ed25519` with no
-   passphrase. The LaunchAgent cannot answer a passphrase prompt, so a key
-   with a passphrase only works if it is in the macOS keychain or ssh-agent.
+2. **A key just for sync.** `bin/deploy` creates `~/.ssh/ssrename_ed25519`
+   with no passphrase, and sync uses that key and nothing else: no ssh-agent.
+   A LaunchAgent cannot type a passphrase or approve a Touch ID prompt, and an
+   agent that wants one — 1Password's, for instance — stalls every connection
+   until it gives up. Your own SSH setup is left as it is.
 3. **The peer accepts it.** If the peer turns the key down, `bin/deploy` runs
-   `ssh-copy-id`, which asks for your password on the peer once.
+   `ssh-copy-id`, which logs in the usual way. This is the one step that may
+   ask you for a password or a Touch ID.
 4. **The agent can use it.** `bin/deploy` waits for the LaunchAgent's first
    sync and shows the result, so a key that works from your terminal but not
    from the agent is caught right away.

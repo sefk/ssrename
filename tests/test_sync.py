@@ -62,7 +62,9 @@ class Machine:
         self.trash = self.home / ".Trash"
         cfg = Config(
             watch_dir=self.shots,
-            sync=SyncConfig(peer=peer, remote_dir="Pictures/Screenshots", ssh_command=str(ssh)),
+            sync=SyncConfig(
+                peer=peer, remote_dir="Pictures/Screenshots", ssh_command=str(ssh), identity_file=""
+            ),
         )
         self.syncer = Syncer(
             cfg, state_path=self.home / REMOTE_STATE_PATH, trash_dir=self.trash
@@ -352,3 +354,13 @@ def test_first_sweep_says_up_to_date_once(pair, caplog):
     studio.syncer.run_once()
     studio.syncer.run_once()
     assert [r.getMessage() for r in caplog.records] == ["sync with laptop: up to date"]
+
+
+def test_ssh_uses_only_the_sync_key_when_it_exists(tmp_path):
+    key = tmp_path / "ssrename_ed25519"
+    cfg = Config(watch_dir=tmp_path, sync=SyncConfig(peer="p", identity_file=str(key)))
+    assert "-i" not in Syncer(cfg)._ssh()  # no key yet: plain ssh, agent and all
+    key.write_text("k")
+    argv = Syncer(cfg)._ssh()
+    assert argv[argv.index("-i") + 1] == str(key)
+    assert "IdentitiesOnly=yes" in argv and "IdentityAgent=none" in argv

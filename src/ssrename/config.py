@@ -97,6 +97,10 @@ interval_seconds = 300
 # names its own, so the model never names one image twice.
 extensions = ["png", "jpg", "jpeg", "heic"]
 ssh_command = "ssh"
+# Sync's own key, made by bin/deploy. While it exists, sync uses it and nothing
+# else: no ssh-agent, so a 1Password-style agent that wants Touch ID can never
+# stall the LaunchAgent.
+identity_file = "~/.ssh/ssrename_ed25519"
 
 [prompt]
 instructions = """{DEFAULT_INSTRUCTIONS}"""
@@ -129,6 +133,7 @@ class SyncConfig:
     interval_seconds: float = 300.0
     extensions: tuple[str, ...] = ("png", "jpg", "jpeg", "heic")
     ssh_command: str = "ssh"
+    identity_file: str = "~/.ssh/ssrename_ed25519"
 
 
 @dataclass
@@ -199,6 +204,7 @@ def load_config(path: Path | None = None) -> Config:
             e.lower().lstrip(".") for e in sync.get("extensions", cfg.sync.extensions)
         ),
         ssh_command=str(sync.get("ssh_command", cfg.sync.ssh_command)),
+        identity_file=str(sync.get("identity_file", cfg.sync.identity_file)),
     )
 
     prompt = data.get("prompt", {})

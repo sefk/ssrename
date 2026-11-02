@@ -179,7 +179,14 @@ class Syncer:
     # --- talking to the peer ------------------------------------------------
 
     def _ssh(self) -> list[str]:
-        return [*shlex.split(self.cfg.sync.ssh_command), *SSH_OPTIONS]
+        argv = [*shlex.split(self.cfg.sync.ssh_command), *SSH_OPTIONS]
+        key = Path(self.cfg.sync.identity_file).expanduser() if self.cfg.sync.identity_file else None
+        if key and key.exists():
+            # Only this key, and no agent at all: an agent that wants approval
+            # (1Password asks for Touch ID) hangs every connection until it is
+            # refused, which a LaunchAgent can never answer.
+            argv += ["-i", str(key), "-o", "IdentitiesOnly=yes", "-o", "IdentityAgent=none"]
+        return argv
 
     def _remote(self, command: str) -> subprocess.CompletedProcess:
         argv = [*self._ssh(), self.peer, command]
