@@ -11,6 +11,7 @@ from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
 from .renamer import Renamer
+from .sync import Syncer
 
 log = logging.getLogger("ssrename")
 
@@ -23,17 +24,25 @@ BACKOFF_MAX = 600.0
 
 
 class _Handler(FileSystemEventHandler):
-    def __init__(self, enqueue):
+    def __init__(self, enqueue, changed=lambda path: None):
         self.enqueue = enqueue
+        self.changed = changed  # for sync: anything appearing or disappearing
 
     def on_created(self, event: FileSystemEvent) -> None:
         if not event.is_directory:
             self.enqueue(Path(event.src_path))
+            self.changed(Path(event.src_path))
 
     def on_moved(self, event: FileSystemEvent) -> None:
         # Some capture paths write a temp file and move it into place.
         if not event.is_directory and event.dest_path:
             self.enqueue(Path(event.dest_path))
+            self.changed(Path(event.src_path))
+            self.changed(Path(event.dest_path))
+
+    def on_deleted(self, event: FileSystemEvent) -> None:
+        if not event.is_directory:
+            self.changed(Path(event.src_path))
 
 
 class Watcher:
@@ -44,9 +53,10 @@ class Watcher:
     wait `debounce_seconds` more before touching it.
     """
 
-    def __init__(self, renamer: Renamer):
+    def __init__(self, renamer: Renamer, syncer: Syncer | None = None):
         self.renamer = renamer
         self.cfg = renamer.cfg
+        self.syncer = syncer
         self._pending: dict[Path, float] = {}
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -160,11 +170,23 @@ class Watcher:
         watch_dir = self.cfg.watch_dir
         watch_dir.mkdir(parents=True, exist_ok=True)
         observer = Observer()
-        observer.schedule(_Handler(self.enqueue), str(watch_dir), recursive=False)
+        changed = self.syncer.poke if self.syncer else (lambda path: None)
+        observer.schedule(
+            _Handler(self.enqueue, changed), str(watch_dir), recursive=False
+        )
         observer.start()
         worker = threading.Thread(target=self._worker, daemon=True)
         worker.start()
-        log.info("watching %s (backend=%s)", watch_dir, self.cfg.backend_kind)
+        if self.syncer:
+            threading.Thread(
+                target=self.syncer.run, args=(self._stop,), daemon=True
+            ).start()
+        log.info(
+            "watching %s (backend=%s%s)",
+            watch_dir,
+            self.cfg.backend_kind,
+            f", sync with {self.syncer.peer}" if self.syncer else "",
+        )
         try:
             while not self._stop.is_set():
                 time.sleep(0.5)

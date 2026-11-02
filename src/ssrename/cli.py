@@ -11,6 +11,7 @@ from . import __version__, system
 from .backends import BackendError, make_backend
 from .config import DEFAULT_CONFIG_PATH, load_config, write_default_config
 from .renamer import Renamer
+from .sync import PeerUnreachable, SyncError, Syncer
 from .watcher import Watcher
 
 log = logging.getLogger("ssrename")
@@ -30,7 +31,36 @@ def _renamer(args) -> Renamer:
 
 
 def cmd_watch(args) -> int:
-    Watcher(_renamer(args)).run()
+    renamer = _renamer(args)
+    cfg = renamer.cfg
+    syncer = Syncer(cfg, dry_run=args.dry_run) if cfg.sync.peer else None
+    Watcher(renamer, syncer).run()
+    return 0
+
+
+def cmd_sync(args) -> int:
+    cfg = load_config(args.config)
+    if not cfg.sync.peer:
+        print("sync is off: set [sync] peer in the config", file=sys.stderr)
+        return 1
+    try:
+        report = Syncer(cfg, dry_run=args.dry_run).sweep()
+    except PeerUnreachable as e:
+        print(f"peer {cfg.sync.peer} unreachable: {e}", file=sys.stderr)
+        return 1
+    except SyncError as e:
+        print(f"sync failed: {e}", file=sys.stderr)
+        return 1
+    verb = "would " if args.dry_run else ""
+    for label, names in (
+        ("send", report.sent),
+        ("receive", report.received),
+        ("trash", report.trashed),
+        ("record deletion of", report.deleted),
+    ):
+        for name in names:
+            print(f"{verb}{label} {name}")
+    print(report.summary())
     return 0
 
 
@@ -100,6 +130,17 @@ def cmd_doctor(args) -> int:
     except BackendError as e:
         print(f"backend:           FAILED - {e}")
         ok = False
+
+    if cfg.sync.peer:
+        try:
+            print(f"sync:              {Syncer(cfg).check()}")
+        except PeerUnreachable as e:
+            print(f"sync:              peer {cfg.sync.peer} unreachable (asleep?) - {e}")
+        except (SyncError, OSError) as e:
+            print(f"sync:              FAILED - {e}")
+            ok = False
+    else:
+        print("sync:              off")
 
     status = system.agent_status()
     print(f"launch agent:      {status}")
@@ -226,6 +267,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     backfill.add_argument("--limit", type=int, default=0)
     backfill.set_defaults(func=cmd_backfill)
+
+    sub.add_parser(
+        "sync", parents=[common], help="sync with the [sync] peer once, now"
+    ).set_defaults(func=cmd_sync)
 
     sub.add_parser(
         "doctor", parents=[common], help="check config, backend, and macOS settings"

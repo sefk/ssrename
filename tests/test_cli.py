@@ -20,7 +20,7 @@ def test_global_flags_after_the_subcommand():
 
 
 @pytest.mark.parametrize(
-    "command", ["watch", "doctor", "backfill", "init", "install", "uninstall"]
+    "command", ["watch", "doctor", "backfill", "init", "install", "uninstall", "sync"]
 )
 def test_every_subcommand_takes_config_on_either_side(command):
     before = _parse(["--config", "/tmp/c.toml", command])

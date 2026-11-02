@@ -155,6 +155,7 @@ things you're most likely to change:
 | `backend.openai.model` | `qwen/qwen3.6-27b` | must accept images |
 | `backend.fm.model` | `device` | `device` or `pcc` |
 | `backend.fm.extra_args` | `[]` | extra `fm respond` flags, e.g. `["--greedy"]` |
+| `sync.peer` | `""` (off) | the other Mac's Tailscale name; see [Syncing two Macs][sync] |
 | `prompt.instructions` | see file | system prompt shaping the names |
 
 Reasoning models will spend their whole token budget thinking and return an
@@ -176,6 +177,59 @@ so keep one config per machine, or point the agent at an explicit file:
 ssrename --config ~/.config/ssrename/studio.toml install
 ```
 
+## Syncing two Macs
+
+ssrename can keep the screenshot folders on two Macs identical: a screenshot
+taken on the laptop shows up on the desktop, already renamed, and the other way
+round. It goes straight from one machine to the other over SSH, using
+[Tailscale][tailscale] to find the peer, with no cloud service in between.
+
+```toml
+[sync]
+peer = "sef-m3"     # on the desktop; "studio" on the laptop
+```
+
+Each side needs to be able to SSH to the other without a password:
+
+1. **Remote Login** on both: System Settings → General → Sharing → Remote
+   Login.
+2. **Keys** both ways: `ssh-copy-id studio` from the laptop, and
+   `ssh-copy-id sef-m3` from the desktop. Then `ssh studio true` should succeed
+   without a prompt. The LaunchAgent cannot answer a passphrase prompt, so the
+   key has to be in the macOS keychain or ssh-agent, or have no passphrase.
+3. `ssrename sync` runs one sync in the foreground and lists what it moved;
+   `ssrename doctor` checks the connection. After that, the LaunchAgent syncs
+   whenever the folder changes and every `interval_seconds` (default 5
+   minutes).
+
+How it behaves:
+
+- **Only renamed images are synced** (`png`, `jpg`, `jpeg`, `heic`; recordings
+  are not). A raw `Screenshot ...` file stays on the machine that took it until
+  that machine has renamed it, so the model never names the same image twice.
+- **Nothing is ever overwritten.** If both machines already have a file with the
+  same name, each keeps its own.
+- **Deletes are synced.** Deleting a screenshot on one Mac moves the other
+  Mac's copy to its Trash the next time that Mac syncs. Renaming a file by hand
+  works the same way: the old name is deleted on the peer and the new name is
+  copied over. If you restore a file from the Trash, the restored copy is kept
+  and synced again.
+- **An offline peer is normal.** A sleeping laptop gets one `WARNING` line in
+  the log, and the sync catches up when it wakes. Deletes made in the meantime
+  are remembered and applied then.
+- **Mass disappearance is refused.** If more than half of the synced files
+  vanish at once (at least 10), ssrename assumes the folder is unmounted or
+  `watch_dir` is wrong rather than that you deleted them all, logs an error,
+  and does not delete anything on the peer. If you really did delete them,
+  remove `~/.local/state/ssrename/sync.json` and run `ssrename sync`.
+
+The first sync merges both folders' full histories. ssrename remembers what it
+has synced, and the names you have deleted, in
+`~/.local/state/ssrename/sync.json`; the peer reads that file over SSH.
+
+`remote_dir` defaults to the same place as `watch_dir`, relative to the home
+directory. Set it if the peer keeps its screenshots somewhere else.
+
 ## Commands
 
 | Command | Does |
@@ -183,7 +237,8 @@ ssrename --config ~/.config/ssrename/studio.toml install
 | `ssrename watch` | run the watcher in the foreground |
 | `ssrename once FILE...` | rename specific files now (`--force` ignores the name filter) |
 | `ssrename backfill [--limit N]` | rename existing screenshots in the watch dir |
-| `ssrename doctor` | check config, backend reachability, macOS settings, agent |
+| `ssrename sync` | sync with the `[sync]` peer once, now |
+| `ssrename doctor` | check config, backend reachability, macOS settings, agent, sync peer |
 | `ssrename init [--force]` | write the default config |
 | `ssrename set-screenshot-dir [PATH]` | point macOS at a screenshot folder (see above) |
 | `ssrename install` / `uninstall` | manage the LaunchAgent |
@@ -275,3 +330,5 @@ uv run pytest
 [ollama]: https://ollama.com
 [fm]: https://developer.apple.com/videos/play/wwdc2026/334/
 [bench]: #benchmarking-backends
+[sync]: #syncing-two-macs
+[tailscale]: https://tailscale.com

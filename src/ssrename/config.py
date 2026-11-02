@@ -83,6 +83,21 @@ model = "device"
 # `ssrename-bench` measures what each combination does to accuracy and speed.
 extra_args = []
 
+[sync]
+# Keep the renamed screenshots in watch_dir identical with one other Mac, over
+# SSH — directly between the two machines, no cloud service. Set peer to the
+# other machine's Tailscale name (e.g. "studio") on each side. Empty disables.
+peer = ""
+# The peer's screenshot directory, relative to its home directory. Empty means
+# the same place as watch_dir here.
+remote_dir = ""
+# Full sweep this often (seconds). Changes in watch_dir also trigger one.
+interval_seconds = 300
+# Only these are synced. Raw `Screenshot ...` files never are: each machine
+# names its own, so the model never names one image twice.
+extensions = ["png", "jpg", "jpeg", "heic"]
+ssh_command = "ssh"
+
 [prompt]
 instructions = """{DEFAULT_INSTRUCTIONS}"""
 text = "{DEFAULT_PROMPT}"
@@ -108,6 +123,15 @@ class FmBackendConfig:
 
 
 @dataclass
+class SyncConfig:
+    peer: str = ""
+    remote_dir: str = ""
+    interval_seconds: float = 300.0
+    extensions: tuple[str, ...] = ("png", "jpg", "jpeg", "heic")
+    ssh_command: str = "ssh"
+
+
+@dataclass
 class Config:
     watch_dir: Path = Path("~/Pictures/Screenshots").expanduser()
     filename_pattern: str = "^(Screenshot|Screen Shot|Screen Recording) "
@@ -119,6 +143,7 @@ class Config:
     backend_kind: str = "openai"
     openai: OpenAIBackendConfig = field(default_factory=OpenAIBackendConfig)
     fm: FmBackendConfig = field(default_factory=FmBackendConfig)
+    sync: SyncConfig = field(default_factory=SyncConfig)
     instructions: str = DEFAULT_INSTRUCTIONS
     prompt: str = DEFAULT_PROMPT
     source: Path | None = None
@@ -163,6 +188,17 @@ def load_config(path: Path | None = None) -> Config:
         binary=fm.get("binary", cfg.fm.binary),
         timeout=float(fm.get("timeout", cfg.fm.timeout)),
         extra_args=[str(a) for a in fm.get("extra_args", [])],
+    )
+
+    sync = data.get("sync", {})
+    cfg.sync = SyncConfig(
+        peer=str(sync.get("peer", cfg.sync.peer)).strip(),
+        remote_dir=str(sync.get("remote_dir", cfg.sync.remote_dir)).strip(),
+        interval_seconds=float(sync.get("interval_seconds", cfg.sync.interval_seconds)),
+        extensions=tuple(
+            e.lower().lstrip(".") for e in sync.get("extensions", cfg.sync.extensions)
+        ),
+        ssh_command=str(sync.get("ssh_command", cfg.sync.ssh_command)),
     )
 
     prompt = data.get("prompt", {})
